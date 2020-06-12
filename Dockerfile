@@ -1,4 +1,4 @@
-FROM ubuntu:18.04
+FROM everpeace/kube-openmpi:0.7.0
 
 # Variables
 ENV SOURCE_BASE_DIR /scratch
@@ -20,8 +20,6 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 RUN echo "deb http://security.ubuntu.com/ubuntu xenial-security main" | tee -a /etc/apt/sources.list
 RUN apt update
 
-CMD tail -f /dev/null
-
 RUN apt-get install build-essential git pkg-config \
     libavcodec-dev libavformat-dev libswscale-dev libv4l-dev \
     libxvidcore-dev libx264-dev libjpeg-dev libtiff-dev \
@@ -30,7 +28,8 @@ RUN apt-get install build-essential git pkg-config \
     python-numpy libjasper-dev libjasper1 libgsl-dev libxpm-dev \
     libcfitsio-dev r-base r-base-dev libssl-dev g++ make wget libcurl4-openssl-dev \
     libx11-dev libxft-dev libxext-dev libpng-dev libjpeg-dev \
-    libavcodec-dev libavformat-dev libswscale-dev -yqq
+    libavcodec-dev libavformat-dev libswscale-dev libcfitsio-bin gcc-4.8 \
+    g++-4.8 libc++-dev -yqq
 
 
 # install CMAKE
@@ -51,7 +50,7 @@ RUN cd ${SOURCE_CMAKE_DIR} && tar xzvf ${SOURCE_CMAKE_DIR}/cmake-${CMAKE_VERSION
 
 # Configure, build and install
 RUN cd ${CMAKE_SRC_DIR} && ./bootstrap --prefix=${CMAKE_INSTALL_DIR} && \
-    make && \
+    make -j10 && \
     make install
 
 # Set env var
@@ -73,7 +72,7 @@ RUN cd ${SOURCE_OPENCV_DIR}/opencv && mkdir build && cd build && \
         -D CMAKE_INSTALL_PREFIX=$OPENCV_DIR \
          -DOPENCV_EXTRA_MODULES_PATH=${SOURCE_OPENCV_DIR}/opencv_contrib/modules \
         .. && \
-        make -j3 && make install
+        make -j10 && make install
 
 
 # Setting environment variables
@@ -137,7 +136,7 @@ RUN mkdir ${SOURCE_ROOT_DIR}/build && \
     -D r=ON \
     -D builtin_xrootd=ON \
     ${SOURCE_ROOT_DIR}/root && \
-    make -j4 && \
+    make && \
     make install
 
 RUN cp -r ${SOURCE_ROOT_DIR}/root/etc/cmake ${ROOTSYS}/etc
@@ -161,7 +160,7 @@ RUN mkdir -p ${JSONCPP_BUILD_DIR} && \
 RUN cd ${SOURCE_BASE_DIR} && git clone ${JSONCPP_URL}
 
 RUN cd ${JSONCPP_BUILD_DIR} && ${CMAKE_RECENT} -DCMAKE_INSTALL_PREFIX=${JSONCPP_INSTALL_DIR} -DBUILD_SHARED_LIBS=ON -DJSONCPP_WITH_PKGCONFIG_SUPPORT=ON ${JSONCPP_SRC_DIR} \
-  && make \
+  && make -j10 \
   && make install
 
 # Set env vars
@@ -218,23 +217,22 @@ RUN echo "sys.path = [''] + sys.path" >> ${CASA_LOGON_FILE}
 # Clear CASA tar
 RUN rm -rf ${SOFTDIR_TAR}/casa${CASA_VERSION}.tar.gz || :
 
-RUN apt install libcfitsio-bin -yqq
-
 # build container
 RUN cd $SOURCE_BASE_DIR &&\
-    git clone https://github.com/ljlabs/caesar && \
-    cd $SOURCE_CAESAR_DIR && \
-    git checkout devel
+    git clone https://github.com/SKA-INAF/caesar && \
+    cd $SOURCE_CAESAR_DIR
 
 RUN mkdir $SOURCE_CAESAR_DIR/build_caesar && \
     mkdir $INSTALL_CAESAR_DIR && \
     mkdir $INSTALL_CAESAR_DIR/include
 
-RUN apt-get install gcc libc++-7-dev -yqq
-ENV CC gcc
-ENV CXX g++
+ENV CC mpicc
+ENV CXX mpic++
 ENV PATH $CMAKE_INSTALL_DIR/bin:$PATH
-#CMD tail -f /dev/null
+
+RUN R -e "install.packages('RInside',dependencies=TRUE, repos='http://cran.rstudio.com/')"
+ENV LD_LIBRARY_PATH /usr/local/lib/R/site-library/RInside/lib:$LD_LIBRARY_PATH
+
 RUN cd $SOURCE_CAESAR_DIR/build_caesar && \
     ${CMAKE_RECENT} \
     -D CMAKE_INSTALL_PREFIX=$INSTALL_CAESAR_DIR \
@@ -243,11 +241,17 @@ RUN cd $SOURCE_CAESAR_DIR/build_caesar && \
     -D ENABLE_VTK=OFF \
     -D ENABLE_TEST=OFF \
     -D BUILD_WITH_OPENMP=OFF \
-    -D ENABLE_MPI=OFF \
-    -D BUILD_APPS=OFF \
-    -D ENABLE_R=OFF \
+    -D MPI_ENABLED=ON \
+    -D ENABLE_MPI=ON \
+    -D BUILD_APPS=ON \
+    -D ENABLE_R=ON \
     $SOURCE_CAESAR_DIR && \
     make && \
     make install
 
-CMD tail -f /dev/null
+ENV LD_LIBRARY_PATH $INSTALL_CAESAR_DIR/lib:$LD_LIBRARY_PATH
+ENV PATH $INSTALL_CAESAR_DIR/bin:$PATH
+
+RUN echo "export LD_LIBRARY_PATH=/opt/caesar/lib:/usr/local/lib/R/site-library/RInside/lib:/opt/root/lib:/lib::/opt/OpenCV/lib:/opt/jsoncpp/lib:/opt/jsoncpp/lib" >> /root/.bashrc && \
+    echo "export LD_LIBRARY_PATH=/opt/caesar/lib:/usr/local/lib/R/site-library/RInside/lib:/opt/root/lib:/lib::/opt/OpenCV/lib:/opt/jsoncpp/lib:/opt/jsoncpp/lib" >> /home/openmpi/.bashrc
+

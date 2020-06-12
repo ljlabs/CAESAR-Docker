@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caesar-deployment
+  labels:
+    app: caesar
+spec:
+  selector:
+    matchLabels:
+      app: caesar
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: caesar
+    spec:
+      containers:
+        - name: caesar
+          image: caesar:v1
+          ports:
+            - containerPort: 2022
+          resources:
+            limits:
+              memory: 256Mi
+              cpu: "250m"
+            requests:
+              memory: 128Mi
+              cpu: "80m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: caesar
+spec:
+  selector:
+    app: caesar
+  ports:
+    - protocol: TCP
+      port: 22
+      targetPort: 22
+      nodePort: 30022
+  type: NodePort
